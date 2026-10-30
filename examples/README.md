@@ -55,7 +55,7 @@ or changes to the installed core are necessary. The library itself uses SPI,
 not the touch peripheral.
 
 Select **ESP32 Dev Module**, then choose a sketch from
-**File > Examples > INA229Driver** and upload it. With Arduino CLI, for example:
+**File > Examples > INA229_SPI_Driver** and upload it. With Arduino CLI, for example:
 
 ```sh
 arduino-cli compile --fqbn esp32:esp32:esp32 --warnings all --library . examples/AllMeasurements

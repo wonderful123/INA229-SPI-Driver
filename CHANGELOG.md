@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Renamed the project to INA229 SPI Driver
+  (package identifier: INA229_SPI_Driver).
+- Added INA229_SPI_Driver.h as the primary header, retaining previous includes.
+
 - Updated the recommended Arduino ESP32 core to 3.3.12, which fixes its internal
   deprecated touch-driver usage upstream without suppressing warnings.
 - Added focused examples for all measurements, energy/charge accumulation,

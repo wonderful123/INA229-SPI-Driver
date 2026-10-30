@@ -1,4 +1,4 @@
-#include <INA229Driver.h>
+#include <INA229_SPI_Driver.h>
 
 // ESP32 Dev Module wiring and shunt selection: see examples/README.md.
 constexpr uint8_t CHIP_SELECT = 5;

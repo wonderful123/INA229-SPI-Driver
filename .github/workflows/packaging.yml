@@ -29,7 +29,7 @@ jobs:
           python-version: '3.12'
       - run: pip install platformio==6.1.18
       - name: Pack library
-        run: pio pkg pack --output /tmp/INA229Driver.tar.gz
+        run: pio pkg pack --output /tmp/INA229-SPI-Driver.tar.gz
       - name: Compile every example against the archive
         run: |
           mkdir -p /tmp/ina229-project/src
@@ -40,7 +40,7 @@ jobs:
           framework = arduino
           build_unflags = -std=gnu++11
           build_flags = -std=gnu++17
-          lib_deps = /tmp/INA229Driver.tar.gz
+          lib_deps = /tmp/INA229-SPI-Driver.tar.gz
           INI
           for sketch in examples/*/*.ino; do
             rm -f /tmp/ina229-project/src/*.ino

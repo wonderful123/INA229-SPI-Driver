@@ -1,5 +1,5 @@
 {
-  "name": "INA229Driver",
+  "name": "INA229_SPI_Driver",
   "version": "1.0.0",
   "description": "C++17 SPI driver for the TI INA229 power, energy, and charge monitor, with an Arduino SPI adapter.",
   "keywords": [
@@ -17,10 +17,10 @@
     }
   ],
   "license": "MIT",
-  "homepage": "https://github.com/wonderful123/INA229-SPI-Library",
+  "homepage": "https://github.com/wonderful123/INA229-SPI-Driver",
   "repository": {
     "type": "git",
-    "url": "https://github.com/wonderful123/INA229-SPI-Library.git"
+    "url": "https://github.com/wonderful123/INA229-SPI-Driver.git"
   },
   "frameworks": [
     "arduino"
@@ -29,7 +29,7 @@
     "espressif32"
   ],
   "headers": [
-    "INA229Driver.h"
+    "INA229_SPI_Driver.h"
   ],
   "build": {
     "includeDir": "src",

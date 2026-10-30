@@ -1,6 +1,7 @@
 #include <INA229.h> // Verify the compatibility include remains usable.
 #include <INA229/Utility.hpp>
 #include <INA229Driver.h>
+#include <INA229_SPI_Driver.h>
 #include <array>
 
 // This target is compiled as strict C++17 independently of the GoogleTest

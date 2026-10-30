@@ -1,4 +1,4 @@
-# INA229Driver
+# INA229 SPI Driver
 
 **Power monitoring in real units, with clear errors and a testable SPI interface.**
 
@@ -37,12 +37,14 @@ for Arduino, its built-in SPI library.
 | Your setup | Support |
 | --- | --- |
 | TI INA229 connected over SPI to an ESP32 | Included adapter and examples; builds verified on both toolchains below |
-| Arduino IDE / Arduino CLI | ESP32 core **3.3.12** recommended; use `#include <INA229Driver.h>` |
+| Arduino IDE / Arduino CLI | ESP32 core **3.3.12** recommended; use `#include <INA229_SPI_Driver.h>` |
 | PlatformIO | `espressif32@6.10.0`, Arduino framework, and C++17 project flags |
 | Another C++17 platform | Portable core available; implement `INA229::ISPI` and validate your board |
 | Classic Arduino Uno / Mega (AVR) | Unsupported by their default toolchains: this library needs `std::optional` and `std::string_view` |
 
 ## Installation
+
+The package identifier is `INA229_SPI_Driver`; the repository is `INA229-SPI-Driver`.
 
 Until registry registration is complete, install from the Git repository or a
 ZIP. Package metadata is included for Arduino Library Manager and the PlatformIO
@@ -54,7 +56,7 @@ Registry; publication and indexing are separate release steps.
 2. Download this repository as a ZIP, then select
    **Sketch → Include Library → Add .ZIP Library**.
 3. Select **ESP32 Dev Module** and open
-   **File → Examples → INA229Driver → BasicReadings**.
+   **File → Examples → INA229_SPI_Driver → BasicReadings**.
 4. Set your actual shunt resistance and maximum expected current, upload, and
    open Serial Monitor at **115200 baud**.
 
@@ -73,7 +75,7 @@ framework = arduino
 monitor_speed = 115200
 build_unflags = -std=gnu++11
 build_flags = -std=gnu++17
-lib_deps = https://github.com/wonderful123/INA229-SPI-Library.git
+lib_deps = https://github.com/wonderful123/INA229-SPI-Driver.git
 ```
 
 The project flags matter because your sketch includes C++17 public headers.
@@ -116,7 +118,7 @@ This sketch assumes a **2 mΩ shunt** and **10 A maximum expected current**.
 Replace those values with your actual circuit values, including peak current.
 
 ```cpp
-#include <INA229Driver.h>
+#include <INA229_SPI_Driver.h>
 
 INA229::ArduinoSPI sensorSPI{SPI, 5}; // SPI bus, chip-select pin
 INA229::INA229_Driver sensor{sensorSPI};
@@ -260,8 +262,8 @@ CI checks native tests and compiles every example under both embedded toolchains
 Build and test results establish software coverage, not hardware certification.
 
 Alert-threshold configuration and a separate single-shot retrigger API are not
-currently exposed. Other boards need their own validation. The `INA229.h` include
-remains available for compatibility; new sketches should use `INA229Driver.h`.
+currently exposed. Other boards need their own validation. The `INA229.h` and `INA229Driver.h` includes remain available for compatibility;
+new sketches should use `INA229_SPI_Driver.h`.
 
 ## Native development and other platforms
 
