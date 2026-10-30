@@ -1,35 +1,69 @@
-# INA229 SPI driver
+# INA229Driver
 
-C++17 driver for the TI INA229 power, energy, and charge monitor. It supports
-continuous or single-shot measurement configuration, signed current and charge,
-shunt temperature compensation, diagnostic reads, and configuration recovery.
+**Power monitoring in real units, with clear errors and a testable SPI interface.**
 
-## Arduino IDE / Arduino CLI
+A C++17 driver for the **Texas Instruments INA229**. Read bus voltage,
+bidirectional current, power, accumulated energy and charge, and die temperature
+without writing register-packing or conversion code yourself.
 
-The library uses Arduino's standard `src/` layout and `library.properties`.
-For local installation, download a ZIP of this repository and select
-**Sketch > Include Library > Add .ZIP Library** in the Arduino IDE.
-Choose **ESP32 Dev Module** with Espressif's Arduino ESP32 core **3.x or newer**,
-then open **File > Examples > INA229Driver > BasicReadings**.
-Use `#include <INA229Driver.h>` to include the driver and Arduino SPI adapter.
+Use the included Arduino SPI adapter on **ESP32**, install through **PlatformIO
+or Arduino ZIP import**, or bring your own SPI implementation for another C++17
+application.
 
-Arduino CLI can compile a local checkout after the board core is installed:
+[Quick start](#quick-start) · [Installation](#installation) · [Examples](#examples) · [API](#measurement-api) · [Validation](#tested-and-validated)
 
-```sh
-arduino-cli core install esp32:esp32@3.3.0 --additional-urls https://espressif.github.io/arduino-esp32/package_esp32_index.json
-arduino-cli compile --fqbn esp32:esp32:esp32 --library . examples/BasicReadings
-```
+## Why choose this driver?
 
-ESP32 is the advertised Arduino architecture. Classic AVR boards such as the
-Uno/Mega are not supported: their default toolchains do not provide the C++17
-standard library required for `std::optional` and `std::string_view`.
-Other modern platforms can use the portable core with their own `ISPI` adapter,
-but are not yet advertised as validated Arduino targets.
+- **Useful values immediately.** Measurement methods return volts, amperes,
+  watts, joules, coulombs, and degrees Celsius. Current and charge retain their
+  sign for bidirectional measurements.
+- **Failures stay visible.** Initialization returns a status code, invalid
+  configuration can return an explanation, and measurements use `std::optional`
+  so an unavailable reading is distinguishable from a real zero.
+- **Configuration is verified.** Initialization checks register readback.
+  Health checks can restore and verify configuration after a mismatch.
+- **Precision settings are explicit.** Select shunt range, conversion times,
+  averaging, and shunt temperature compensation in one `DriverConfig`.
+- **Easy to start, easy to test.** Five standalone examples cover common tasks.
+  The core depends on an `ISPI` interface rather than Arduino, so applications
+  can supply a different transport or a test double.
 
-## PlatformIO
+The driver and Arduino adapter are MIT licensed. There are no third-party
+runtime library dependencies beyond the platform's C++17 standard library and,
+for Arduino, its built-in SPI library.
 
-Install from the repository until a release is published to the PlatformIO
-Registry. An ESP32 project can use:
+## Is it right for your project?
+
+| Your setup | Support |
+| --- | --- |
+| TI INA229 connected over SPI to an ESP32 | Included adapter and examples; builds verified on both toolchains below |
+| Arduino IDE / Arduino CLI | ESP32 core **3.3.12** recommended; use `#include <INA229Driver.h>` |
+| PlatformIO | `espressif32@6.10.0`, Arduino framework, and C++17 project flags |
+| Another C++17 platform | Portable core available; implement `INA229::ISPI` and validate your board |
+| Classic Arduino Uno / Mega (AVR) | Unsupported by their default toolchains: this library needs `std::optional` and `std::string_view` |
+
+## Installation
+
+Until registry registration is complete, install from the Git repository or a
+ZIP. Package metadata is included for Arduino Library Manager and the PlatformIO
+Registry; publication and indexing are separate release steps.
+
+### Arduino IDE
+
+1. Install Espressif's **ESP32 board package 3.3.12** in Boards Manager.
+2. Download this repository as a ZIP, then select
+   **Sketch → Include Library → Add .ZIP Library**.
+3. Select **ESP32 Dev Module** and open
+   **File → Examples → INA229Driver → BasicReadings**.
+4. Set your actual shunt resistance and maximum expected current, upload, and
+   open Serial Monitor at **115200 baud**.
+
+ESP32 core 3.3.12 fixes the deprecated touch-driver usage inside core 3.3.0.
+The examples build with warnings enabled; no deprecation suppression is needed.
+
+### PlatformIO
+
+Add the library and C++17 flags to your project's `platformio.ini`:
 
 ```ini
 [env:esp32dev]
@@ -42,18 +76,203 @@ build_flags = -std=gnu++17
 lib_deps = https://github.com/wonderful123/INA229-SPI-Library.git
 ```
 
-Set the C++17 flags on the project as well as the library because sketch files
-include the public headers. Copy `examples/BasicReadings/BasicReadings.ino` into
-your project's `src/`, or run `pio run -d examples/BasicReadings` after these changes
-have been pushed to the repository. That example configuration downloads the
-Git dependency; the packaging CI instead builds against an archive of the current
-checkout so it checks unreleased changes too.
+The project flags matter because your sketch includes C++17 public headers.
+Copy the quick-start sketch below into `src/main.cpp`, or copy an example's
+`.ino` file into `src/`.
 
-## Build and test
+Working from a local checkout? The example environments use that checkout
+directly, with no push or registry account required:
 
-The driver requires C++17; the test suite requires C++20. CMake 3.14 or newer
-is required for native builds. Tests use GoogleTest and GoogleMock. CMake uses an installed GoogleTest package or fetches the pinned
-GoogleTest 1.17.0 commit from GitHub.
+```sh
+pio run -d examples -e BasicReadings
+pio run -d examples -e BasicReadings -t upload
+pio device monitor -d examples -e BasicReadings
+```
+
+## Quick start
+
+### 1. Connect the sensor
+
+These pins match `SPI.begin()` on **ESP32 Dev Module**:
+
+| INA229 | ESP32 |
+| --- | --- |
+| VS / logic supply | 3.3 V |
+| GND | GND, shared with the measured system |
+| SCLK | GPIO 18 |
+| MISO | GPIO 19 |
+| MOSI | GPIO 23 |
+| CS | GPIO 5 |
+
+Connect **IN+ and IN− across your shunt**, and **VBUS to the monitored bus**,
+following your module's wiring instructions. VBUS is a measurement input, not
+the ESP32 supply. See the [wiring and shunt guide](examples/README.md#wire-the-spi-bus)
+for details and the [TI datasheet](https://www.ti.com/lit/ds/symlink/ina229.pdf)
+for electrical limits.
+
+### 2. Read voltage and current
+
+This sketch assumes a **2 mΩ shunt** and **10 A maximum expected current**.
+Replace those values with your actual circuit values, including peak current.
+
+```cpp
+#include <INA229Driver.h>
+
+INA229::ArduinoSPI sensorSPI{SPI, 5}; // SPI bus, chip-select pin
+INA229::INA229_Driver sensor{sensorSPI};
+bool ready = false;
+
+void setup() {
+  Serial.begin(115200);
+  SPI.begin();
+  sensorSPI.begin();
+
+  INA229::DriverConfig config;
+  config.shuntResistor = 0.002;     // Ohms: 2 milliohms
+  config.maxExpectedCurrent = 10; // Amperes, including peaks
+
+  const auto status = sensor.begin(config);
+  ready = status == INA229::Status::OK;
+  if (!ready) {
+    Serial.print("Initialization failed: ");
+    Serial.println(INA229::statusToString(status).data());
+  }
+}
+
+void loop() {
+  delay(1000); // Allow default conversions to complete between readings.
+  if (!ready) {
+    return; // Correct the problem and reset the board to retry.
+  }
+
+  const auto voltage = sensor.getBusVoltage();
+  const auto current = sensor.getCurrentAmps();
+  if (!voltage || !current) {
+    Serial.println("Reading unavailable. Check device power and SPI wiring.");
+    return;
+  }
+
+  Serial.print("Bus voltage (V): ");
+  Serial.println(*voltage, 4);
+  Serial.print("Current (A): ");
+  Serial.println(*current, 6);
+}
+```
+
+With a 12 V rail and positive 1 A load, the output should be approximately:
+
+```text
+Bus voltage (V): 12.0000
+Current (A): 1.000000
+```
+
+The actual result depends on the shunt, wiring, calibration, and temperature.
+For descriptive configuration errors, use `config.validate(&error)` as shown in
+[BasicReadings](examples/BasicReadings/BasicReadings.ino).
+
+## Examples
+
+Each sketch is self-contained and checks errors before using measurements.
+The [examples guide](examples/README.md) covers wiring, expected output,
+configuration choices, and running each sketch with either build system.
+
+| Example | Start here when you want to… |
+| --- | --- |
+| [BasicReadings](examples/BasicReadings/BasicReadings.ino) | Get your first voltage and signed-current readings |
+| [AllMeasurements](examples/AllMeasurements/AllMeasurements.ino) | Read every measurement and see its units |
+| [EnergyAndCharge](examples/EnergyAndCharge/EnergyAndCharge.ino) | Track Wh and signed Ah, inspect overflow flags, and reset totals |
+| [PrecisionAndTemperature](examples/PrecisionAndTemperature/PrecisionAndTemperature.ino) | Choose a narrower shunt range, averaging, and temperature compensation |
+| [DiagnosticsAndRecovery](examples/DiagnosticsAndRecovery/DiagnosticsAndRecovery.ino) | Inspect device IDs and flags, force a health check, and handle recovery |
+
+For example, run `pio run -d examples -e EnergyAndCharge` to build the energy
+example. Send lowercase **`r`** in Serial Monitor to clear its energy and charge
+accumulators.
+
+## Measurement API
+
+All measurement getters return `std::optional<double>`. Check the optional before
+using `*value`; an empty optional signals a failed health check.
+
+| Method | Result |
+| --- | --- |
+| `getBusVoltage()` | Bus voltage in V |
+| `getShuntVoltageVolts()` | Signed shunt voltage in V |
+| `getCurrentAmps()` | Signed current in A |
+| `getDieTemperature()` | INA229 die temperature in °C |
+| `getPowerWatts()` | Power in W |
+| `getEnergyJoules()` | Accumulated energy in J; divide by 3600 for Wh |
+| `getChargeCoulombs()` | Signed accumulated charge in C; divide by 3600 for Ah |
+
+`getDiagnosticFlags()`, `getManufacturerId()`, and `getDeviceId()` return
+`std::optional<uint16_t>`. `getLastStatus()` and `statusToString()` explain status
+codes. `isHealthy()` forces a configuration check; `resetAccumulators()` clears
+energy and charge. See the [public interface](src/INA229/INA229.hpp) for the full API.
+
+### Configure for your circuit
+
+`DriverConfig` groups the settings used by `begin()`:
+
+- **Shunt and current:** resistance in ohms and maximum expected current in A.
+  Validation checks the resulting shunt voltage and calibration register range.
+- **Shunt range:** ±163.84 mV by default, or ±40.96 mV for a smaller input range.
+- **Conversion and averaging:** bus, shunt, and temperature conversion times,
+  sample count, and initial conversion delay.
+- **Temperature compensation:** an optional unsigned coefficient in ppm/°C,
+  encoded at 1 ppm/°C per register step. Use your shunt's specified coefficient
+  and consider thermal coupling to the INA229 die.
+
+The [precision example](examples/PrecisionAndTemperature/PrecisionAndTemperature.ino)
+shows these settings together. Averaging reduces noise; it does not correct an
+incorrect shunt value or poor sense wiring.
+
+### Know what recovery guarantees
+
+`begin()` resets the device and verifies CONFIG, ADC_CONFIG, SHUNT_CAL, and
+SHUNT_TEMPCO readback. A failed initialization disables measurements until a
+subsequent successful `begin()`.
+
+Measurement health is cached for up to seven accesses. `isHealthy()` checks
+immediately and can restore mismatched configuration. Recovery does **not** restore
+lost energy/charge totals or wait for a fresh conversion. `begin()` and hardware
+reset also erase totals. Reading DIAG_ALRT can clear latched flags; interpret a
+saved register value when checking several flags.
+
+The SPI interface has no per-transfer error return, so cached health is not a
+guarantee that every individual read succeeded. The Arduino adapter uses mode 1,
+MSB first, and a default 1 MHz clock. Serialize access to a shared bus and keep
+the SPI bus alive longer than the driver and adapter.
+
+## Tested and validated
+
+**117 native checks pass**, including regression coverage, strict C++17
+compatibility, and Arduino SPI transaction behavior. The same checks also pass
+with undefined-behavior and float-to-integer-overflow sanitizers.
+
+| Validation | Configuration | Result |
+| --- | --- | --- |
+| All five Arduino examples | Arduino CLI 1.3.1, ESP32 core 3.3.12, ESP32 Dev Module | Compiled with all warnings enabled; no warnings |
+| All five PlatformIO examples | PlatformIO 6.1.18, espressif32 6.10.0, Arduino core 2.0.17 | Compiled against the packaged library |
+| Arduino library and sketch lint | Strict Library Manager submission checks | No errors or warnings |
+| Native tests | GCC 14, CMake, GoogleTest/GoogleMock | 117 checks passed, normally and with sanitizers |
+
+CI checks native tests and compiles every example under both embedded toolchains.
+**Physical-device timing and measurement accuracy have not yet been verified.**
+Build and test results establish software coverage, not hardware certification.
+
+Alert-threshold configuration and a separate single-shot retrigger API are not
+currently exposed. Other boards need their own validation. The `INA229.h` include
+remains available for compatibility; new sketches should use `INA229Driver.h`.
+
+## Native development and other platforms
+
+The core has no Arduino dependency. Implement the two methods in
+[`INA229::ISPI`](src/INA229/ISPI.hpp), keeping chip select asserted across the
+command and payload, and pass your transport to `INA229_Driver`. Follow the TI
+SPI timing and byte-order requirements. Transport implementations must not throw
+during the driver's `noexcept` health checks.
+
+Build and test with CMake 3.14 or newer. The driver requires C++17; the tests also
+exercise the C++20 span overload and require a C++20 compiler.
 
 ```sh
 cmake -S . -B build -DCMAKE_BUILD_TYPE=Debug
@@ -61,124 +280,31 @@ cmake --build build -j2
 ctest --test-dir build --output-on-failure
 ```
 
-For offline testing, provide an existing GoogleTest source checkout with
-`-DFETCHCONTENT_SOURCE_DIR_GOOGLETEST=/path/to/googletest`. For a dependency-free
-library build, use `-DBUILD_TESTING=OFF`. A consumer can use:
+CMake uses an installed GoogleTest/GoogleMock package or fetches pinned
+GoogleTest 1.17.0. For offline testing, set
+`-DFETCHCONTENT_SOURCE_DIR_GOOGLETEST=/path/to/googletest`.
+Use `-DBUILD_TESTING=OFF` for a dependency-free library build. CMake consumers can
+link the `INA229::Driver` target.
 
-```cmake
-set(BUILD_TESTING OFF CACHE BOOL "" FORCE)
-add_subdirectory(path/to/INA229-SPI-Library ina229)
-target_link_libraries(my_application PRIVATE INA229::Driver)
-```
-
-## Validated builds
-
-The BasicReadings example has been compiled for ESP32 Dev Module with:
-
-| Build system | Versions | Result |
-| --- | --- | --- |
-| Arduino CLI | CLI 1.3.1, ESP32 core 3.3.0 | Passed |
-| PlatformIO | Core 6.1.18, espressif32 6.10.0, Arduino core 2.0.17 | Passed |
-| Native CMake | GCC 14, C++17 core and C++20 tests | 117 checks passed |
-| Native sanitizers | Undefined behavior and float-to-integer overflow checks | 117 checks passed |
-
-The Arduino core emits a deprecation warning for its own legacy touch driver
-when compiled with all warnings enabled. No physical-device validation is claimed.
-
-## Use
-
-For Arduino, use `INA229::ArduinoSPI` as shown in BasicReadings. It uses SPI
-mode 1, MSB first, and a default 1 MHz clock (INA229 supports up to 10 MHz).
-Call `SPI.begin()` and the adapter's `begin()` before initializing the driver.
-For other environments, implement `INA229::ISPI` using your board's peripheral.
-Each read/write must keep chip select asserted for the command byte followed by exactly `len` payload
-bytes. Transfer bytes most significant first. Follow the bundled TI datasheet's
-SPI mode and timing requirements. The driver handles command construction and
-payload byte ordering; the adapter handles chip select and the SPI transaction.
-The adapter must outlive the driver. Serialize access to the driver and bus.
-
-```cpp
-#include <INA229/INA229Driver.hpp>
-
-void measure(INA229::ISPI &spi) {
-    INA229::INA229_Driver driver{spi};
-    INA229::DriverConfig config;
-    config.shuntResistor = 0.002;     // ohms
-    config.maxExpectedCurrent = 10; // amperes
-    config.tempCompensation = true;
-    config.shuntTempCoeff = 100;    // ppm/degree C; register value is also 100
-    if (driver.begin(config) != INA229::Status::OK) {
-        return;
-    }
-    // Wait for the configured conversion/averaging period before using results.
-    // Poll getDiagnosticFlags() and inspect AlertStatus::CONV_READY if needed.
-    if (auto amps = driver.getCurrentAmps()) {
-        // Use *amps; a missing value means the health check failed.
-    }
-}
-```
-
-`begin()` resets the device, validates finite inputs and register ranges, and
-verifies configuration readback. Any failed `begin()` leaves measurement access
-disabled; call `begin()` successfully before trying measurements again.
-Temperature coefficients are unsigned, 0–16383 ppm/degree C, and are rounded to
-1 ppm/degree C register steps. A coefficient is only used and validated when
-temperature compensation is enabled. Register encoders return zero for
-nonfinite input instead of performing an invalid integer conversion.
-
-Health is cached for up to seven measurement accesses. `isHealthy()` forces a
-configuration check immediately. Configuration mismatch triggers restoration and
-verification of CONFIG, ADC_CONFIG, SHUNT_CAL, and SHUNT_TEMPCO. Recovery does not
-restore lost accumulated energy/charge or wait for fresh conversions. After a
-reset, allow the configured conversion period before consuming results.
-Diagnostic reads can clear latched alert flags as specified in the datasheet.
-
-The current SPI interface has no per-transaction error return. Configuration
-readback detects mismatches, but the driver cannot report every individual
-transport failure, nor does a cached health check guarantee a fresh sample.
-Adapters must not throw during health checks, which are `noexcept`.
-
-## Scope
-
-An Arduino SPI adapter is included. There are currently no APIs for programming
-alert thresholds/polarity/latching. Single-shot mode starts on `begin()`; there is no
-separate retrigger API. These are extension points, not features provided by this
-version. No platform-specific Arduino or PlatformIO toolchain is required for the
-native tests. Native tests simulate SPI; physical device timing and accuracy still
-require hardware verification. See `docs/INA229 Datasheet.pdf` for register details.
-
-## Formatting
-
-C++ files follow the checked-in `.clang-format` configuration (clang-format 18):
+C++ formatting is defined in `.clang-format` (clang-format 18):
 
 ```sh
-clang-format -i src/*.h src/INA229/*.hpp src/*.cpp tests/*.cpp tests/mocks/*.hpp tests/arduino/*.h examples/BasicReadings/*.ino
+clang-format -i src/*.h src/INA229/*.hpp src/*.cpp tests/*.cpp tests/mocks/*.hpp tests/arduino/*.h examples/*.cpp examples/*/*.ino
 ```
 
-## Releasing to the library registries
+## Releases and license
 
-Metadata alone does not publish the library. Before publishing:
+See the [changelog](CHANGELOG.md) for changes. Keep the versions in
+`library.properties` and `library.json` aligned, run the test and packaging
+workflows, and push a matching version tag when ready to release.
 
-1. Run native tests and the packaging workflow (strict Arduino Lint, Arduino
-   ESP32 compilation, PlatformIO packing, and compilation against that archive).
-2. Keep the versions in `library.properties` and `library.json` in sync, commit
-   the changes, and push a matching version tag, for example `v1.0.0` for the
-   first release. Use a new version if 1.0.0 is already registered.
-3. For PlatformIO, sign in using `pio account login`, then run `pio pkg publish`
-   from the library root. Publishing requires the owner's registry credentials.
-4. For Arduino Library Manager, submit the repository URL through the
-   [Arduino library registry](https://github.com/arduino/library-registry#adding-a-library-to-library-manager).
-   After acceptance, compliant new version tags are indexed automatically.
-   Change the packaging workflow's `library-manager` mode from `submit` to
-   `update` once the library is listed.
+For PlatformIO Registry publication, the maintainer runs `pio account login` and
+`pio pkg publish`. For Arduino Library Manager, submit the repository through the
+[Arduino library registry](https://github.com/arduino/library-registry#adding-a-library-to-library-manager).
+After acceptance, new compliant tags are indexed automatically; change the
+packaging workflow's `library-manager` mode from `submit` to `update` once listed.
+These steps require maintainer action; CI does not publish automatically.
 
-The library name must be available in each registry. The Git dependency and ZIP
-installation methods work before registry registration; registry search/install
-requires publication and indexing. This repository does not contain registry
-credentials or automatically publish on push.
-
-## License
-
-Driver code is released under the [MIT license](LICENSE). The bundled TI
+Driver code is available under the [MIT license](LICENSE). The bundled TI
 datasheet retains Texas Instruments' copyright and is excluded from the
 PlatformIO distribution archive.

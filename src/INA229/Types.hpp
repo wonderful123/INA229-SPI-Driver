@@ -94,7 +94,7 @@ enum class AlertStatus : uint16_t {
   BUS_UNDER = 1U << 3,   // Bus voltage under-limit
   POWER_OVER = 1U << 2,  // Power over-limit
   CONV_READY = 1U << 1,  // Conversion ready flag
-  MEMSTAT = 1U << 0      // Memory status (0 = Checksum error / reset occurred)
+  MEMSTAT = 1U << 0      // Trim memory status (0 = Checksum error)
 };
 
 // --- AlertStatus Bitwise Operators ---

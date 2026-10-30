@@ -12,12 +12,14 @@ jobs:
       - uses: arduino/setup-arduino-cli@v2
       - name: Install ESP32 core
         run: >-
-          arduino-cli core install esp32:esp32@3.3.0
+          arduino-cli core install esp32:esp32@3.3.12
           --additional-urls https://espressif.github.io/arduino-esp32/package_esp32_index.json
-      - name: Compile Arduino example
-        run: >-
-          arduino-cli compile --fqbn esp32:esp32:esp32
-          --library . examples/BasicReadings
+      - name: Compile every Arduino example with warnings enabled
+        run: |
+          for sketch in examples/*/*.ino; do
+            arduino-cli compile --fqbn esp32:esp32:esp32 --warnings all \
+              --library . "$(dirname "$sketch")"
+          done
   platformio:
     runs-on: ubuntu-latest
     steps:
@@ -28,10 +30,9 @@ jobs:
       - run: pip install platformio==6.1.18
       - name: Pack library
         run: pio pkg pack --output /tmp/INA229Driver.tar.gz
-      - name: Compile example against the archive
+      - name: Compile every example against the archive
         run: |
           mkdir -p /tmp/ina229-project/src
-          cp examples/BasicReadings/BasicReadings.ino /tmp/ina229-project/src/
           cat > /tmp/ina229-project/platformio.ini <<'INI'
           [env:esp32dev]
           platform = espressif32@6.10.0
@@ -41,4 +42,10 @@ jobs:
           build_flags = -std=gnu++17
           lib_deps = /tmp/INA229Driver.tar.gz
           INI
-          pio run -d /tmp/ina229-project
+          for sketch in examples/*/*.ino; do
+            rm -f /tmp/ina229-project/src/*.ino
+            cp "$sketch" /tmp/ina229-project/src/
+            pio run -d /tmp/ina229-project
+          done
+      - name: Verify local example configuration
+        run: pio run -d examples -e BasicReadings

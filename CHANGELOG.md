@@ -1,5 +1,17 @@
 # Changelog
 
+## Unreleased
+
+- Updated the recommended Arduino ESP32 core to 3.3.12, which fixes its internal
+  deprecated touch-driver usage upstream without suppressing warnings.
+- Added focused examples for all measurements, energy/charge accumulation,
+  precision and temperature compensation, and diagnostics/recovery.
+- Added wiring and usage guidance and local PlatformIO example environments.
+- Extended packaging CI to compile every example on both toolchains.
+- Reworked the README with board compatibility, a compiled quick start, API
+  reference, example navigation, and validation evidence.
+- Corrected the portable usage snippet to include the public header.
+
 ## 1.0.0
 
 Initial packaged release for ESP32 Arduino and PlatformIO, with a portable C++17

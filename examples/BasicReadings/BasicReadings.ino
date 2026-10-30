@@ -1,7 +1,6 @@
 #include <INA229Driver.h>
 
-// ESP32 Dev Module: default SPI pins are SCK=18, MISO=19, MOSI=23.
-// Connect INA229 CS to GPIO 5; use compatible supply and logic voltages.
+// ESP32 Dev Module wiring and shunt selection: see examples/README.md.
 constexpr uint8_t CHIP_SELECT = 5;
 INA229::ArduinoSPI sensorSPI{SPI, CHIP_SELECT};
 INA229::INA229_Driver sensor{sensorSPI};
@@ -13,30 +12,39 @@ void setup() {
   sensorSPI.begin();
 
   INA229::DriverConfig config;
-  config.shuntResistor = 0.002;   // Replace with the actual shunt resistance.
-  config.maxExpectedCurrent = 10; // Amperes; must fit the selected shunt range.
+  config.shuntResistor = 0.002;   // Use the actual shunt resistance in ohms.
+  config.maxExpectedCurrent = 10; // Amperes, including expected peaks.
+  const char *error = nullptr;
+  if (config.validate(&error) != INA229::Status::OK) {
+    Serial.print("Invalid configuration: ");
+    Serial.println(error);
+    return;
+  }
   const auto status = sensor.begin(config);
   sensorReady = status == INA229::Status::OK;
   if (!sensorReady) {
-    Serial.println("INA229 initialization failed. Check SPI wiring and power.");
+    Serial.print("Initialization failed: ");
+    Serial.println(INA229::statusToString(status).data());
+    return;
   }
+  Serial.println("INA229 ready. Open Serial Monitor at 115200 baud.");
 }
 
 void loop() {
-  if (sensorReady) {
-    // Permit default conversions and averaging to complete before reading.
+  if (!sensorReady) {
     delay(1000);
-    const auto busVoltage = sensor.getBusVoltage();
-    const auto current = sensor.getCurrentAmps();
-    if (busVoltage && current) {
-      Serial.print("Bus voltage (V): ");
-      Serial.println(*busVoltage, 4);
-      Serial.print("Current (A): ");
-      Serial.println(*current, 6);
-    } else {
-      Serial.println("INA229 health check failed.");
-    }
-  } else {
-    delay(1000);
+    return; // Correct the wiring/configuration and reset the board to retry.
   }
+  delay(1000); // Default conversions finish well before the next read.
+  const auto voltage = sensor.getBusVoltage();
+  const auto current = sensor.getCurrentAmps();
+  if (!voltage || !current) {
+    Serial.print("Read failed: ");
+    Serial.println(INA229::statusToString(sensor.getLastStatus()).data());
+    return; // Never turn a failed read into a displayed zero.
+  }
+  Serial.print("Bus voltage (V): ");
+  Serial.println(*voltage, 4);
+  Serial.print("Current (A): ");
+  Serial.println(*current, 6);
 }
