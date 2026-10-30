@@ -1,0 +1,19 @@
+{
+  "name": "INA229Driver",
+  "version": "1.0.0",
+  "description": "High-performance C++20 driver for TI INA229 Power Monitor",
+  "keywords": "power, current, sensor, spi, ina229",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/wonderful123/INA229Driver.git"
+  },
+  "build": {
+    "flags": [
+      "-std=gnu++2a",
+      "-I ."
+    ],
+    "unflags": ["-std=gnu++11", "-std=c++11"]
+  },
+  "frameworks": "*",
+  "platforms": "*"
+}
