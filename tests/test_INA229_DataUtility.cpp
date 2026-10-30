@@ -26,13 +26,13 @@ TEST(DataUtilityTest, MakeCommandByte_Write) {
 
 TEST(DataUtilityTest, PackBytes_MultiWidth) {
   uint8_t buf2[] = {0x12, 0x34};
-  EXPECT_EQ(DataUtility::packBytes(buf2, 2), 0x1234ull);
+  EXPECT_EQ(DataUtility::packBytes(std::span{buf2}.first(2)), 0x1234ull);
 
   uint8_t buf3[] = {0x12, 0x34, 0x56};
-  EXPECT_EQ(DataUtility::packBytes(buf3, 3), 0x123456ull);
+  EXPECT_EQ(DataUtility::packBytes(std::span{buf3}.first(3)), 0x123456ull);
 
   uint8_t buf5[] = {0xAA, 0xBB, 0xCC, 0xDD, 0xEE};
-  EXPECT_EQ(DataUtility::packBytes(buf5, 5), 0xAABBCCDDEEull);
+  EXPECT_EQ(DataUtility::packBytes(std::span{buf5}.first(5)), 0xAABBCCDDEEull);
 }
 
 // --- 20-Bit Sign Extension Tests (Left Aligned in 24-bit) ---
@@ -93,7 +93,7 @@ TEST(DataUtilityTest, SignExtend40Bit_HandlesDirtyUpperBits) {
 
 TEST(DataUtilityTest, PackBytes_ZeroLength) {
   uint8_t buf[] = {0x12};
-  EXPECT_EQ(DataUtility::packBytes(buf, 0), 0);
+  EXPECT_EQ(DataUtility::packBytes(std::span{buf}.first(0)), 0ull);
 }
 
 TEST(DataUtilityTest, SignExtend40Bit_Zero) {
@@ -102,5 +102,5 @@ TEST(DataUtilityTest, SignExtend40Bit_Zero) {
 
 TEST(DataUtilityTest, PackBytes_SingleByte) {
   uint8_t buf[] = {0xAB};
-  EXPECT_EQ(DataUtility::packBytes(buf, 1), 0xABull);
+  EXPECT_EQ(DataUtility::packBytes(std::span{buf}.first(1)), 0xABull);
 }

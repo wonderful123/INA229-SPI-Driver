@@ -1,0 +1,5 @@
+/build/
+.pio/
+
+# Windows download metadata
+*Zone.Identifier

@@ -1,0 +1,44 @@
+name: Library packaging
+on: [push, pull_request]
+jobs:
+  arduino:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: arduino/arduino-lint-action@v2
+        with:
+          compliance: strict
+          library-manager: submit
+      - uses: arduino/setup-arduino-cli@v2
+      - name: Install ESP32 core
+        run: >-
+          arduino-cli core install esp32:esp32@3.3.0
+          --additional-urls https://espressif.github.io/arduino-esp32/package_esp32_index.json
+      - name: Compile Arduino example
+        run: >-
+          arduino-cli compile --fqbn esp32:esp32:esp32
+          --library . examples/BasicReadings
+  platformio:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: pip install platformio==6.1.18
+      - name: Pack library
+        run: pio pkg pack --output /tmp/INA229Driver.tar.gz
+      - name: Compile example against the archive
+        run: |
+          mkdir -p /tmp/ina229-project/src
+          cp examples/BasicReadings/BasicReadings.ino /tmp/ina229-project/src/
+          cat > /tmp/ina229-project/platformio.ini <<'INI'
+          [env:esp32dev]
+          platform = espressif32@6.10.0
+          board = esp32dev
+          framework = arduino
+          build_unflags = -std=gnu++11
+          build_flags = -std=gnu++17
+          lib_deps = /tmp/INA229Driver.tar.gz
+          INI
+          pio run -d /tmp/ina229-project

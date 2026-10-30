@@ -1,18 +1,12 @@
+#include "mocks/MockISPI.hpp"
 #include <INA229/Config.hpp>
 #include <INA229/INA229.hpp>
-#include "mocks/MockISPI.hpp"
 #include <cmath>
 #include <cstdint>
-#include <cstring>
-#include <gmock/gmock.h>
 #include <gtest/gtest.h>
+#include <string>
 
 using namespace INA229;
-using ::testing::_;
-using ::testing::DoAll;
-using ::testing::Eq;
-using ::testing::Return;
-using ::testing::SetArrayArgument;
 
 namespace {
 
@@ -22,13 +16,10 @@ constexpr double DEFAULT_MAX_CURRENT = 10.0;
 constexpr double TOLERANCE = 1e-9;
 constexpr double SCALING_TOLERANCE = 1e-6;
 constexpr int32_t FIVE_AMP_COUNTS = 262144;
-constexpr uint8_t TI_MANUFACTURER_ID[] = {0x54, 0x49};
 
 } // namespace
 
-// ============================================================================
 // Test Fixture
-// ============================================================================
 
 class INA229MeasurementsTest : public ::testing::Test {
 protected:
@@ -36,25 +27,7 @@ protected:
 
   void SetUp() override { setupBasicMocks(mockSpi); }
 
-  void setupBasicMocks(MockSPI &spi) {
-    const uint8_t mfgIdCmd =
-        DataUtility::makeCommandByte(Register::MANUFACTURER_ID, true);
-
-    // Default: return zeros for unmocked reads
-    ON_CALL(spi, read(_, _, _))
-        .WillByDefault(
-            [](uint8_t, uint8_t *rx, size_t len) { std::memset(rx, 0, len); });
-
-    // Mock manufacturer ID check during initialization
-    EXPECT_CALL(spi, read(Eq(mfgIdCmd), _, 2))
-        .WillRepeatedly(
-            DoAll(SetArrayArgument<1>(TI_MANUFACTURER_ID,
-                                      TI_MANUFACTURER_ID +
-                                          sizeof(TI_MANUFACTURER_ID)),
-                  Return()));
-
-    EXPECT_CALL(spi, write(_, _, _)).WillRepeatedly(Return());
-  }
+  void setupBasicMocks(MockSPI &spi) { spi.useRegisterModel(); }
 
   void setRegisterValue(Register reg, int32_t value, MockSPI *spi = nullptr) {
     MockSPI &targetSpi = spi ? *spi : mockSpi;
@@ -74,9 +47,7 @@ protected:
   }
 };
 
-// ============================================================================
 // Parameterized Tests: Current Accuracy
-// ============================================================================
 
 struct CurrentTestCase {
   int32_t counts;
@@ -88,28 +59,28 @@ class INA229CurrentParamTest
       public ::testing::WithParamInterface<CurrentTestCase> {};
 
 TEST_P(INA229CurrentParamTest, VerifiesCalculatedAmps) {
-  const auto &[counts, name] = GetParam();
+  const auto counts = GetParam().counts;
   INA229_Driver driver{mockSpi};
 
   ASSERT_EQ(initializeDriver(driver), Status::OK);
 
   setRegisterValue(Register::CURRENT, counts);
 
-  // Zero current case requires VBUS mock
+  // Also verify a zero bus-voltage reading in the zero-current case.
   if (counts == 0) {
     setRegisterValue(Register::VBUS, 0);
   }
 
   const double expected = static_cast<double>(counts) * driver.getCurrentLsb();
-  EXPECT_NEAR(driver.getCurrentAmps(), expected, TOLERANCE);
+  EXPECT_NEAR(driver.getCurrentAmps().value(), expected, TOLERANCE);
 
   // Verify sign correctness
   if (counts > 0) {
-    EXPECT_GT(driver.getCurrentAmps(), 0.0);
+    EXPECT_GT(driver.getCurrentAmps().value(), 0.0);
   } else if (counts < 0) {
-    EXPECT_LT(driver.getCurrentAmps(), 0.0);
+    EXPECT_LT(driver.getCurrentAmps().value(), 0.0);
   } else {
-    EXPECT_DOUBLE_EQ(driver.getBusVoltage(), 0.0);
+    EXPECT_DOUBLE_EQ(driver.getBusVoltage().value(), 0.0);
   }
 }
 
@@ -122,9 +93,7 @@ INSTANTIATE_TEST_SUITE_P(
       return info.param.name;
     });
 
-// ============================================================================
 // Behavioral Tests: Scaling & Units
-// ============================================================================
 
 TEST_F(INA229MeasurementsTest, Current_ScalesLinearlyWithMaxCurrent) {
   INA229_Driver driver1{mockSpi};
@@ -143,8 +112,8 @@ TEST_F(INA229MeasurementsTest, Current_ScalesLinearlyWithMaxCurrent) {
   setRegisterValue(Register::CURRENT, counts, &mockSpi);
   setRegisterValue(Register::CURRENT, counts, &mockSpi2);
 
-  const double amps1 = driver1.getCurrentAmps();
-  const double amps2 = driver2.getCurrentAmps();
+  const double amps1 = driver1.getCurrentAmps().value();
+  const double amps2 = driver2.getCurrentAmps().value();
 
   EXPECT_NEAR(amps2, amps1 * 2.0, SCALING_TOLERANCE);
   EXPECT_GT(amps1, 0.0);
@@ -157,12 +126,10 @@ TEST_F(INA229MeasurementsTest, Current_ReturnsAmperesNotMilliamperes) {
   setRegisterValue(Register::CURRENT, FIVE_AMP_COUNTS);
 
   // Verify units are Amperes (not mA)
-  EXPECT_NEAR(driver.getCurrentAmps(), 5.0, 0.1);
+  EXPECT_NEAR(driver.getCurrentAmps().value(), 5.0, 0.1);
 }
 
-// ============================================================================
 // Bus Voltage Measurement Tests
-// ============================================================================
 
 TEST_F(INA229MeasurementsTest, BusVoltage_PositiveValue) {
   INA229_Driver driver{mockSpi};
@@ -180,7 +147,7 @@ TEST_F(INA229MeasurementsTest, BusVoltage_PositiveValue) {
 
   mockSpi.setRegisterValue(Register::VBUS, leftAligned, 3);
 
-  double voltage = driver.getBusVoltage();
+  double voltage = driver.getBusVoltage().value();
 
   EXPECT_NEAR(voltage, 12.0, 0.1);
 }
@@ -197,7 +164,7 @@ TEST_F(INA229MeasurementsTest, BusVoltage_Zero) {
 
   mockSpi.setRegisterValue(Register::VBUS, 0x000000, 3);
 
-  double voltage = driver.getBusVoltage();
+  double voltage = driver.getBusVoltage().value();
 
   EXPECT_NEAR(voltage, 0.0, 1e-6);
 }
@@ -218,7 +185,7 @@ TEST_F(INA229MeasurementsTest, BusVoltage_InVolts) {
 
   mockSpi.setRegisterValue(Register::VBUS, leftAligned, 3);
 
-  double voltage = driver.getBusVoltage();
+  double voltage = driver.getBusVoltage().value();
 
   // Should be ~5.0 (Volts), not 5000 (millivolts)
   EXPECT_NEAR(voltage, 5.0, 0.1);
@@ -229,23 +196,20 @@ TEST_F(INA229MeasurementsTest, BusVoltage_MaximumRange) {
   DriverConfig config{.shuntResistor = 0.002, .maxExpectedCurrent = 10.0};
   ASSERT_EQ(initializeDriver(driver, config), Status::OK);
 
-  // 0x7FFFF is the maximum POSITIVE 20-bit value (signed)
-  // Shifted left by 4 for the 24-bit register alignment
+  // Exercise a large unsigned bus reading, left-aligned for the wire format.
   uint32_t maxPositiveRaw = 0x7FFFF0;
 
   mockSpi.setRegisterValue(Register::VBUS, maxPositiveRaw, 3);
 
-  double voltage = driver.getBusVoltage();
+  double voltage = driver.getBusVoltage().value();
 
   // 0x7FFFF * 195.3125µV = 102.39V
-  // (Note: The chip physical limit is 85V, but the register limit is ~102V)
+  // This synthetic value exceeds the 85 V physical input limit.
   EXPECT_GT(voltage, 0.0);
   EXPECT_NEAR(voltage, 102.39, 0.1);
 }
 
-// ============================================================================
 // Temperature Measurement Tests
-// ============================================================================
 
 TEST_F(INA229MeasurementsTest, Temperature_RoomTemperature) {
   INA229_Driver driver{mockSpi};
@@ -263,7 +227,7 @@ TEST_F(INA229MeasurementsTest, Temperature_RoomTemperature) {
   mockSpi.setRegisterValue(Register::DIETEMP, static_cast<uint16_t>(rawValue),
                            2);
 
-  double temp = driver.getDieTemperature();
+  double temp = driver.getDieTemperature().value();
 
   EXPECT_NEAR(temp, 25.0, 0.1);
 }
@@ -284,7 +248,7 @@ TEST_F(INA229MeasurementsTest, Temperature_NegativeValue) {
   mockSpi.setRegisterValue(Register::DIETEMP, static_cast<uint16_t>(rawValue),
                            2);
 
-  double temp = driver.getDieTemperature();
+  double temp = driver.getDieTemperature().value();
 
   EXPECT_NEAR(temp, -10.0, 0.1);
 }
@@ -305,7 +269,7 @@ TEST_F(INA229MeasurementsTest, Temperature_InCelsius) {
   mockSpi.setRegisterValue(Register::DIETEMP, static_cast<uint16_t>(rawValue),
                            2);
 
-  double temp = driver.getDieTemperature();
+  double temp = driver.getDieTemperature().value();
 
   // Should be in Celsius
   EXPECT_NEAR(temp, 100.0, 0.1);
@@ -325,14 +289,12 @@ TEST_F(INA229MeasurementsTest, Temperature_Zero) {
 
   mockSpi.setRegisterValue(Register::DIETEMP, 0x0000, 2);
 
-  double temp = driver.getDieTemperature();
+  double temp = driver.getDieTemperature().value();
 
   EXPECT_NEAR(temp, 0.0, 0.01);
 }
 
-// ============================================================================
 // Power Measurement Tests
-// ============================================================================
 
 TEST_F(INA229MeasurementsTest, Power_PositiveValue) {
   INA229_Driver driver{mockSpi};
@@ -347,7 +309,7 @@ TEST_F(INA229MeasurementsTest, Power_PositiveValue) {
   // Simulate some power reading
   mockSpi.setRegisterValue(Register::POWER, 0x100000, 3);
 
-  double power = driver.getPowerWatts();
+  double power = driver.getPowerWatts().value();
 
   EXPECT_GT(power, 0.0);
 }
@@ -364,7 +326,7 @@ TEST_F(INA229MeasurementsTest, Power_Zero) {
 
   mockSpi.setRegisterValue(Register::POWER, 0x000000, 3);
 
-  double power = driver.getPowerWatts();
+  double power = driver.getPowerWatts().value();
 
   EXPECT_NEAR(power, 0.0, 1e-9);
 }
@@ -380,7 +342,7 @@ TEST_F(INA229MeasurementsTest, Power_InWatts) {
   // Driver: raw * 3.2 * LSB
   double expectedPower =
       static_cast<double>(rawPower) * 3.2 * driver.getCurrentLsb();
-  EXPECT_NEAR(driver.getPowerWatts(), expectedPower, 1e-7);
+  EXPECT_NEAR(driver.getPowerWatts().value(), expectedPower, 1e-7);
 }
 
 TEST_F(INA229MeasurementsTest, Power_ScalesWithCurrentLSB) {
@@ -400,13 +362,7 @@ TEST_F(INA229MeasurementsTest, Power_ScalesWithCurrentLSB) {
 
   // Setup SPIs
   for (auto *spi : {&spi1, &spi2}) {
-    using ::testing::_;
-    std::array<uint8_t, 2> mfgId = {0x54, 0x49};
-    ON_CALL(*spi, read(_, _, 2))
-        .WillByDefault(testing::DoAll(
-            testing::SetArrayArgument<1>(mfgId.begin(), mfgId.end()),
-            testing::Return()));
-    ON_CALL(*spi, write(_, _, _)).WillByDefault(testing::Return());
+    setupBasicMocks(*spi);
   }
 
   ASSERT_EQ(driver1.begin(config1), Status::OK);
@@ -417,16 +373,14 @@ TEST_F(INA229MeasurementsTest, Power_ScalesWithCurrentLSB) {
   spi1.setRegisterValue(Register::POWER, rawPower, 3);
   spi2.setRegisterValue(Register::POWER, rawPower, 3);
 
-  double power1 = driver1.getPowerWatts();
-  double power2 = driver2.getPowerWatts();
+  double power1 = driver1.getPowerWatts().value();
+  double power2 = driver2.getPowerWatts().value();
 
   // Power scales with current LSB, so should be approximately doubled
   EXPECT_NEAR(power2, power1 * 2.0, power1 * 0.01);
 }
 
-// ============================================================================
 // Energy Accumulation Tests
-// ============================================================================
 
 TEST_F(INA229MeasurementsTest, Energy_PositiveValue) {
   INA229_Driver driver{mockSpi};
@@ -440,7 +394,7 @@ TEST_F(INA229MeasurementsTest, Energy_PositiveValue) {
 
   mockSpi.setRegisterValue(Register::ENERGY, 0x1000000000ULL, 5);
 
-  double energy = driver.getEnergyJoules();
+  double energy = driver.getEnergyJoules().value();
 
   EXPECT_GT(energy, 0.0);
 }
@@ -457,7 +411,7 @@ TEST_F(INA229MeasurementsTest, Energy_Zero) {
 
   mockSpi.setRegisterValue(Register::ENERGY, 0x0000000000ULL, 5);
 
-  double energy = driver.getEnergyJoules();
+  double energy = driver.getEnergyJoules().value();
 
   EXPECT_NEAR(energy, 0.0, 1e-12);
 }
@@ -473,7 +427,7 @@ TEST_F(INA229MeasurementsTest, Energy_InJoules) {
   // Driver: raw * 16.0 * 3.2 * LSB
   double expectedEnergy =
       static_cast<double>(rawEnergy) * 16.0 * 3.2 * driver.getCurrentLsb();
-  EXPECT_NEAR(driver.getEnergyJoules(), expectedEnergy, 1e-5);
+  EXPECT_NEAR(driver.getEnergyJoules().value(), expectedEnergy, 1e-5);
 }
 
 TEST_F(INA229MeasurementsTest, Energy_40BitRange) {
@@ -491,16 +445,14 @@ TEST_F(INA229MeasurementsTest, Energy_40BitRange) {
 
   mockSpi.setRegisterValue(Register::ENERGY, maxValue, 5);
 
-  double energy = driver.getEnergyJoules();
+  double energy = driver.getEnergyJoules().value();
 
   // Should handle large values without overflow
   EXPECT_GT(energy, 0.0);
   EXPECT_FALSE(std::isinf(energy));
 }
 
-// ============================================================================
 // Charge Accumulation Tests
-// ============================================================================
 
 TEST_F(INA229MeasurementsTest, Charge_PositiveValue) {
   INA229_Driver driver{mockSpi};
@@ -514,7 +466,7 @@ TEST_F(INA229MeasurementsTest, Charge_PositiveValue) {
 
   mockSpi.setRegisterValue(Register::CHARGE, 0x1000000000ULL, 5);
 
-  double charge = driver.getChargeCoulombs();
+  double charge = driver.getChargeCoulombs().value();
 
   EXPECT_GT(charge, 0.0);
 }
@@ -534,7 +486,7 @@ TEST_F(INA229MeasurementsTest, Charge_NegativeValue) {
 
   mockSpi.setRegisterValue(Register::CHARGE, negativeValue, 5);
 
-  double charge = driver.getChargeCoulombs();
+  double charge = driver.getChargeCoulombs().value();
 
   EXPECT_LT(charge, 0.0);
 }
@@ -551,7 +503,7 @@ TEST_F(INA229MeasurementsTest, Charge_Zero) {
 
   mockSpi.setRegisterValue(Register::CHARGE, 0x0000000000ULL, 5);
 
-  double charge = driver.getChargeCoulombs();
+  double charge = driver.getChargeCoulombs().value();
 
   EXPECT_NEAR(charge, 0.0, 1e-12);
 }
@@ -575,14 +527,12 @@ TEST_F(INA229MeasurementsTest, Charge_InCoulombs) {
   mockSpi.setRegisterValue(
       Register::CHARGE, static_cast<uint64_t>(rawValue) & 0xFFFFFFFFFFULL, 5);
 
-  double charge = driver.getChargeCoulombs();
+  double charge = driver.getChargeCoulombs().value();
 
   EXPECT_NEAR(charge, 100.0, 1.0);
 }
 
-// ============================================================================
 // Current LSB Getter Test
-// ============================================================================
 
 TEST_F(INA229MeasurementsTest, CurrentLSB_ReturnsConfiguredValue) {
   INA229_Driver driver{mockSpi};
@@ -600,35 +550,33 @@ TEST_F(INA229MeasurementsTest, CurrentLSB_ReturnsConfiguredValue) {
   EXPECT_NEAR(lsb, expectedLsb, 1e-12);
 }
 
-// ============================================================================
 // Integration / Real-World Scenario Tests
-// ============================================================================
 
 TEST_F(INA229MeasurementsTest, Scenario_12VRail_5A) {
   INA229_Driver driver{mockSpi};
   DriverConfig config{.shuntResistor = 0.002, .maxExpectedCurrent = 10.0};
   ASSERT_EQ(initializeDriver(driver, config), Status::OK);
 
-  double cLsb = driver.getCurrentLsb();
-  double vLsb = 195.3125e-6;
-  double pLsb = 3.2 * cLsb;
+  double currentLsb = driver.getCurrentLsb();
+  double busVoltageLsb = 195.3125e-6;
+  double powerLsb = 3.2 * currentLsb;
 
   // 12V Setup
-  uint32_t vbusRaw = static_cast<uint32_t>(12.0 / vLsb);
+  uint32_t vbusRaw = static_cast<uint32_t>(12.0 / busVoltageLsb);
   mockSpi.setRegisterValue(Register::VBUS, (vbusRaw & 0xFFFFF) << 4, 3);
 
   // 5A Setup
-  int32_t currentRaw = static_cast<int32_t>(5.0 / cLsb);
+  int32_t currentRaw = static_cast<int32_t>(5.0 / currentLsb);
   mockSpi.setRegisterValue(
       Register::CURRENT, (static_cast<uint32_t>(currentRaw) & 0xFFFFF) << 4, 3);
 
   // Calculated Power (P = V * I)
-  uint32_t powerRaw = static_cast<uint32_t>(60.0 / pLsb);
+  uint32_t powerRaw = static_cast<uint32_t>(60.0 / powerLsb);
   mockSpi.setRegisterValue(Register::POWER, powerRaw & 0xFFFFFF, 3);
 
-  EXPECT_NEAR(driver.getBusVoltage(), 12.0, 0.01);
-  EXPECT_NEAR(driver.getCurrentAmps(), 5.0, 0.01);
-  EXPECT_NEAR(driver.getPowerWatts(), 60.0, 0.1);
+  EXPECT_NEAR(driver.getBusVoltage().value(), 12.0, 0.01);
+  EXPECT_NEAR(driver.getCurrentAmps().value(), 5.0, 0.01);
+  EXPECT_NEAR(driver.getPowerWatts().value(), 60.0, 0.1);
 }
 
 TEST_F(INA229MeasurementsTest, Scenario_LowCurrent_100mA) {
@@ -636,8 +584,8 @@ TEST_F(INA229MeasurementsTest, Scenario_LowCurrent_100mA) {
 
   DriverConfig config{
       .shuntResistor = 0.1, // 100mΩ for better resolution at low currents
-      .maxExpectedCurrent = 1.0,
-      .range = ShuntRange::RANGE_40mV,
+      .maxExpectedCurrent = 0.4,
+      .range = ShuntRange::RANGE_41mV,
   };
 
   ASSERT_EQ(initializeDriver(driver, config), Status::OK);
@@ -649,7 +597,7 @@ TEST_F(INA229MeasurementsTest, Scenario_LowCurrent_100mA) {
   mockSpi.setRegisterValue(
       Register::CURRENT, (static_cast<uint32_t>(currentRaw) & 0xFFFFF) << 4, 3);
 
-  double current = driver.getCurrentAmps();
+  double current = driver.getCurrentAmps().value();
 
   EXPECT_NEAR(current, 0.1, 0.01);
 }
@@ -672,7 +620,7 @@ TEST_F(INA229MeasurementsTest, Scenario_BidirectionalCurrent) {
                            (static_cast<uint32_t>(positiveRaw) & 0xFFFFF) << 4,
                            3);
 
-  double positiveCurrent = driver.getCurrentAmps();
+  double positiveCurrent = driver.getCurrentAmps().value();
   EXPECT_GT(positiveCurrent, 0.0);
 
   // Test negative current (regenerative braking scenario)
@@ -681,13 +629,11 @@ TEST_F(INA229MeasurementsTest, Scenario_BidirectionalCurrent) {
                            (static_cast<uint32_t>(negativeRaw) & 0xFFFFF) << 4,
                            3);
 
-  double negativeCurrent = driver.getCurrentAmps();
+  double negativeCurrent = driver.getCurrentAmps().value();
   EXPECT_LT(negativeCurrent, 0.0);
 }
 
-// ============================================================================
 // Data Validity Tests
-// ============================================================================
 
 TEST_F(INA229MeasurementsTest, AllMeasurements_NoNaN) {
   INA229_Driver driver{mockSpi};
@@ -707,12 +653,12 @@ TEST_F(INA229MeasurementsTest, AllMeasurements_NoNaN) {
   mockSpi.setRegisterValue(Register::ENERGY, 0x1000000000ULL, 5);
   mockSpi.setRegisterValue(Register::CHARGE, 0x1000000000ULL, 5);
 
-  EXPECT_FALSE(std::isnan(driver.getCurrentAmps()));
-  EXPECT_FALSE(std::isnan(driver.getBusVoltage()));
-  EXPECT_FALSE(std::isnan(driver.getDieTemperature()));
-  EXPECT_FALSE(std::isnan(driver.getPowerWatts()));
-  EXPECT_FALSE(std::isnan(driver.getEnergyJoules()));
-  EXPECT_FALSE(std::isnan(driver.getChargeCoulombs()));
+  EXPECT_FALSE(std::isnan(driver.getCurrentAmps().value()));
+  EXPECT_FALSE(std::isnan(driver.getBusVoltage().value()));
+  EXPECT_FALSE(std::isnan(driver.getDieTemperature().value()));
+  EXPECT_FALSE(std::isnan(driver.getPowerWatts().value()));
+  EXPECT_FALSE(std::isnan(driver.getEnergyJoules().value()));
+  EXPECT_FALSE(std::isnan(driver.getChargeCoulombs().value()));
 }
 
 TEST_F(INA229MeasurementsTest, AllMeasurements_NoInfinity) {
@@ -733,17 +679,15 @@ TEST_F(INA229MeasurementsTest, AllMeasurements_NoInfinity) {
   mockSpi.setRegisterValue(Register::ENERGY, 0xFFFFFFFFFFULL, 5);
   mockSpi.setRegisterValue(Register::CHARGE, 0x7FFFFFFFFFULL, 5);
 
-  EXPECT_FALSE(std::isinf(driver.getCurrentAmps()));
-  EXPECT_FALSE(std::isinf(driver.getBusVoltage()));
-  EXPECT_FALSE(std::isinf(driver.getDieTemperature()));
-  EXPECT_FALSE(std::isinf(driver.getPowerWatts()));
-  EXPECT_FALSE(std::isinf(driver.getEnergyJoules()));
-  EXPECT_FALSE(std::isinf(driver.getChargeCoulombs()));
+  EXPECT_FALSE(std::isinf(driver.getCurrentAmps().value()));
+  EXPECT_FALSE(std::isinf(driver.getBusVoltage().value()));
+  EXPECT_FALSE(std::isinf(driver.getDieTemperature().value()));
+  EXPECT_FALSE(std::isinf(driver.getPowerWatts().value()));
+  EXPECT_FALSE(std::isinf(driver.getEnergyJoules().value()));
+  EXPECT_FALSE(std::isinf(driver.getChargeCoulombs().value()));
 }
 
-// ============================================================================
 // Consistency Tests
-// ============================================================================
 
 TEST_F(INA229MeasurementsTest, RepeatedReads_Consistent) {
   INA229_Driver driver{mockSpi};
@@ -757,18 +701,16 @@ TEST_F(INA229MeasurementsTest, RepeatedReads_Consistent) {
 
   mockSpi.setRegisterValue(Register::CURRENT, 0x100000, 3);
 
-  double current1 = driver.getCurrentAmps();
-  double current2 = driver.getCurrentAmps();
-  double current3 = driver.getCurrentAmps();
+  double current1 = driver.getCurrentAmps().value();
+  double current2 = driver.getCurrentAmps().value();
+  double current3 = driver.getCurrentAmps().value();
 
   // Multiple reads should give identical results
   EXPECT_EQ(current1, current2);
   EXPECT_EQ(current2, current3);
 }
 
-// ============================================================================
 // Boundary Tests
-// ============================================================================
 
 TEST_F(INA229MeasurementsTest, Current_MaximumPositive) {
   INA229_Driver driver{mockSpi};
@@ -783,7 +725,7 @@ TEST_F(INA229MeasurementsTest, Current_MaximumPositive) {
   // Maximum positive 20-bit value
   mockSpi.setRegisterValue(Register::CURRENT, 0x7FFFF0, 3);
 
-  double current = driver.getCurrentAmps();
+  double current = driver.getCurrentAmps().value();
 
   EXPECT_GT(current, 0.0);
   EXPECT_FALSE(std::isinf(current));
@@ -799,7 +741,7 @@ TEST_F(INA229MeasurementsTest, Current_MaximumNegative) {
   mockSpi.setRegisterValue(Register::CURRENT, 0x800000, 3);
 
   double expectedCurrent = -524288.0 * driver.getCurrentLsb();
-  EXPECT_NEAR(driver.getCurrentAmps(), expectedCurrent, 1e-7);
+  EXPECT_NEAR(driver.getCurrentAmps().value(), expectedCurrent, 1e-7);
 }
 
 TEST_F(INA229MeasurementsTest, Temperature_ExtremeCold) {
@@ -817,7 +759,7 @@ TEST_F(INA229MeasurementsTest, Temperature_ExtremeCold) {
   mockSpi.setRegisterValue(Register::DIETEMP, static_cast<uint16_t>(rawValue),
                            2);
 
-  double temp = driver.getDieTemperature();
+  double temp = driver.getDieTemperature().value();
 
   EXPECT_NEAR(temp, -40.0, 0.5);
 }
@@ -837,7 +779,7 @@ TEST_F(INA229MeasurementsTest, Temperature_ExtremeHot) {
   mockSpi.setRegisterValue(Register::DIETEMP, static_cast<uint16_t>(rawValue),
                            2);
 
-  double temp = driver.getDieTemperature();
+  double temp = driver.getDieTemperature().value();
 
   EXPECT_NEAR(temp, 125.0, 0.5);
 }

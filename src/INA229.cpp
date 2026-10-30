@@ -1,4 +1,3 @@
-// lib/INA229/src/INA229.cpp
 #include <INA229/INA229.hpp>
 #include <INA229/Utility.hpp>
 #include <array>
@@ -7,6 +6,9 @@
 namespace INA229 {
 
 Status INA229_Driver::begin(const DriverConfig &config) {
+  _isInitialized = false;
+  _currentLsb = 0.0;
+  invalidateHealthCache();
   if (auto status = config.validate(); status != Status::OK) {
     _lastStatus = status;
     return status;
@@ -17,17 +19,14 @@ Status INA229_Driver::begin(const DriverConfig &config) {
     return status;
   }
 
-  write16(Register::ADC_CONFIG, config.getAdcConfigValue());
-  write16(Register::CONFIG, config.getConfigValue());
-  write16(Register::SHUNT_CAL, config.getShuntCalValue());
-
-  if (config.tempCompensation) {
-    write16(Register::SHUNT_TEMPCO, config.getTempCoValue());
+  applyConfiguration(config);
+  if (!configurationMatches(config)) {
+    _lastStatus = Status::ERR_COMM;
+    return _lastStatus;
   }
 
   _storedConfig = config;
   _currentLsb = config.calculateLsb();
-  _expectedShuntCal = config.getShuntCalValue();
   _isInitialized = true;
   _lastStatus = Status::OK;
 
@@ -55,10 +54,7 @@ bool INA229_Driver::ensureHealthy() const noexcept {
     return false;
   }
 
-  const auto currentCal =
-      static_cast<uint16_t>(readRegister(Register::SHUNT_CAL));
-
-  if (currentCal == _expectedShuntCal) {
+  if (configurationMatches(_storedConfig)) {
     _lastStatus = Status::OK;
     _isHealthyCached = true;
     return true;
@@ -75,19 +71,28 @@ void INA229_Driver::invalidateHealthCache() noexcept {
   _healthCheckCounter = 0;
 }
 
+void INA229_Driver::applyConfiguration(const DriverConfig &config) const {
+  // Set range, calibration and compensation before starting conversions.
+  write16(Register::CONFIG, config.getConfigValue());
+  write16(Register::SHUNT_CAL, config.getShuntCalValue());
+  write16(Register::SHUNT_TEMPCO, config.getTempCoValue());
+  write16(Register::ADC_CONFIG, config.getAdcConfigValue());
+}
+
+bool INA229_Driver::configurationMatches(const DriverConfig &config) const {
+  constexpr uint16_t configMask = Mask::Config::CONVDLY_MASK |
+                                  Mask::Config::TEMPCOMP |
+                                  Mask::Config::ADCRANGE;
+  return (readRegister(Register::CONFIG) & configMask) ==
+             config.getConfigValue() &&
+         readRegister(Register::ADC_CONFIG) == config.getAdcConfigValue() &&
+         readRegister(Register::SHUNT_CAL) == config.getShuntCalValue() &&
+         readRegister(Register::SHUNT_TEMPCO) == config.getTempCoValue();
+}
+
 Status INA229_Driver::recoverFromReset() const noexcept {
-  write16(Register::ADC_CONFIG, _storedConfig.getAdcConfigValue());
-  write16(Register::CONFIG, _storedConfig.getConfigValue());
-  write16(Register::SHUNT_CAL, _storedConfig.getShuntCalValue());
-
-  if (_storedConfig.tempCompensation) {
-    write16(Register::SHUNT_TEMPCO, _storedConfig.getTempCoValue());
-  }
-
-  const auto verifyRead =
-      static_cast<uint16_t>(readRegister(Register::SHUNT_CAL));
-
-  return (verifyRead == _expectedShuntCal) ? Status::OK : Status::ERR_COMM;
+  applyConfiguration(_storedConfig);
+  return configurationMatches(_storedConfig) ? Status::OK : Status::ERR_COMM;
 }
 
 // --- Data Acquisition ---
@@ -234,7 +239,7 @@ uint64_t INA229_Driver::readRegister(Register reg) const {
   std::array<uint8_t, 5> buffer{};
   _spi.read(cmd, buffer.data(), width);
 
-  return DataUtility::packBytes(std::span{buffer}.first(width));
+  return DataUtility::packBytes(buffer.data(), width);
 }
 
 } // namespace INA229

@@ -1,19 +1,58 @@
 {
   "name": "INA229Driver",
   "version": "1.0.0",
-  "description": "High-performance C++20 driver for TI INA229 Power Monitor",
-  "keywords": "power, current, sensor, spi, ina229",
+  "description": "C++17 SPI driver for the TI INA229 power, energy, and charge monitor, with an Arduino SPI adapter.",
+  "keywords": [
+    "power",
+    "current",
+    "sensor",
+    "spi",
+    "ina229"
+  ],
+  "authors": [
+    {
+      "name": "Josh Jenkins",
+      "url": "https://github.com/wonderful123",
+      "maintainer": true
+    }
+  ],
+  "license": "MIT",
+  "homepage": "https://github.com/wonderful123/INA229-SPI-Library",
   "repository": {
     "type": "git",
-    "url": "https://github.com/wonderful123/INA229Driver.git"
+    "url": "https://github.com/wonderful123/INA229-SPI-Library.git"
   },
+  "frameworks": [
+    "arduino"
+  ],
+  "platforms": [
+    "espressif32"
+  ],
+  "headers": [
+    "INA229Driver.h"
+  ],
   "build": {
+    "includeDir": "src",
+    "srcDir": "src",
     "flags": [
-      "-std=gnu++2a",
-      "-I ."
+      "-std=gnu++17"
     ],
-    "unflags": ["-std=gnu++11", "-std=c++11"]
+    "unflags": [
+      "-std=gnu++11",
+      "-std=c++11",
+      "-std=gnu++14",
+      "-std=c++14"
+    ]
   },
-  "frameworks": "*",
-  "platforms": "*"
+  "export": {
+    "include": [
+      "src",
+      "examples",
+      "library.json",
+      "library.properties",
+      "README.md",
+      "LICENSE",
+      "CHANGELOG.md"
+    ]
+  }
 }

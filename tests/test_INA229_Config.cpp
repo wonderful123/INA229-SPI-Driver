@@ -1,6 +1,6 @@
 #include <INA229/Config.hpp>
-#include <cmath>
 #include <gtest/gtest.h>
+#include <string_view>
 
 using namespace INA229;
 
@@ -11,9 +11,7 @@ using namespace INA229;
  * Tests focus on what the configuration does, not how it's implemented.
  */
 
-// ============================================================================
 // Configuration Validation Tests
-// ============================================================================
 
 TEST(DriverConfigTest, ValidConfiguration_Passes) {
   DriverConfig config{
@@ -30,9 +28,9 @@ TEST(DriverConfigTest, ZeroShuntResistor_Rejected) {
       .maxExpectedCurrent = 10.0,
   };
 
-  std::string errMsg;
+  const char *errMsg = nullptr;
   EXPECT_EQ(config.validate(&errMsg), Status::ERR_INVALID_CONFIG);
-  EXPECT_FALSE(errMsg.empty());
+  EXPECT_FALSE(std::string_view(errMsg).empty());
 }
 
 TEST(DriverConfigTest, NegativeShuntResistor_Rejected) {
@@ -50,9 +48,9 @@ TEST(DriverConfigTest, ZeroMaxCurrent_Rejected) {
       .maxExpectedCurrent = 0.0,
   };
 
-  std::string errMsg;
+  const char *errMsg = nullptr;
   EXPECT_EQ(config.validate(&errMsg), Status::ERR_INVALID_CONFIG);
-  EXPECT_FALSE(errMsg.empty());
+  EXPECT_FALSE(std::string_view(errMsg).empty());
 }
 
 TEST(DriverConfigTest, NegativeMaxCurrent_Rejected) {
@@ -72,9 +70,10 @@ TEST(DriverConfigTest, TempCompensationWithoutCoefficient_Rejected) {
       .shuntTempCoeff = std::nullopt,
   };
 
-  std::string errMsg;
+  const char *errMsg = nullptr;
   EXPECT_EQ(config.validate(&errMsg), Status::ERR_INVALID_CONFIG);
-  EXPECT_NE(errMsg.find("Temperature"), std::string::npos);
+  EXPECT_NE(std::string_view(errMsg).find("Temperature"),
+            std::string_view::npos);
 }
 
 TEST(DriverConfigTest, TempCompensationWithCoefficient_Passes) {
@@ -104,19 +103,21 @@ TEST(DriverConfigTest, TempCoefficientTooHigh_Rejected) {
   DriverConfig config{
       .shuntResistor = 0.002,
       .maxExpectedCurrent = 10.0,
-      .shuntTempCoeff = 600.0, // Out of range
+      .tempCompensation = true,
+      .shuntTempCoeff = 16384.0, // Out of range
   };
 
-  std::string errMsg;
+  const char *errMsg = nullptr;
   EXPECT_EQ(config.validate(&errMsg), Status::ERR_INVALID_CONFIG);
-  EXPECT_NE(errMsg.find("range"), std::string::npos);
+  EXPECT_NE(std::string_view(errMsg).find("range"), std::string_view::npos);
 }
 
 TEST(DriverConfigTest, TempCoefficientTooLow_Rejected) {
   DriverConfig config{
       .shuntResistor = 0.002,
       .maxExpectedCurrent = 10.0,
-      .shuntTempCoeff = -600.0,
+      .tempCompensation = true,
+      .shuntTempCoeff = -1.0,
   };
 
   EXPECT_EQ(config.validate(), Status::ERR_INVALID_CONFIG);
@@ -125,17 +126,15 @@ TEST(DriverConfigTest, TempCoefficientTooLow_Rejected) {
 TEST(DriverConfigTest, ValidationErrorMessage_Provided) {
   DriverConfig config{.shuntResistor = 0.0, .maxExpectedCurrent = 10.0};
 
-  std::string errMsg;
+  const char *errMsg = nullptr;
   Status status = config.validate(&errMsg);
 
   EXPECT_EQ(status, Status::ERR_INVALID_CONFIG);
-  EXPECT_FALSE(errMsg.empty());
-  EXPECT_GT(errMsg.length(), 10); // Should be descriptive
+  EXPECT_FALSE(std::string_view(errMsg).empty());
+  EXPECT_GT(std::string_view(errMsg).length(), 10u); // Should be descriptive
 }
 
-// ============================================================================
 // Current LSB Calculation Tests
-// ============================================================================
 
 TEST(DriverConfigTest, CurrentLsb_CalculatedCorrectly) {
   DriverConfig config{.maxExpectedCurrent = 10.0};
@@ -161,9 +160,7 @@ TEST(DriverConfigTest, CurrentLsb_SmallCurrent) {
   EXPECT_LT(lsb, 1e-6); // Should be very small
 }
 
-// ============================================================================
 // Temperature Coefficient Register Tests
-// ============================================================================
 
 TEST(DriverConfigTest, TempCoValue_DisabledReturnsZero) {
   DriverConfig config{
@@ -193,9 +190,8 @@ TEST(DriverConfigTest, TempCoValue_PositiveCoefficient) {
 
   const uint16_t value = config.getTempCoValue();
 
-  // Formula: (ppm × 2^14) / 10^6
-  // 100 × 16384 / 1000000 = 1.6384 → rounds to 2
-  EXPECT_GT(value, 0);
+  // Datasheet: 1 ppm/°C per register LSB.
+  EXPECT_EQ(value, 100);
   EXPECT_LE(value, 0x3FFF); // 14-bit max
 }
 
@@ -207,7 +203,7 @@ TEST(DriverConfigTest, TempCoValue_NegativeCoefficient) {
       .shuntTempCoeff = -100.0,
   };
 
-  // Negative values round toward zero or saturate at 0
+  // Negative coefficients encode as zero.
   const uint16_t value = config.getTempCoValue();
   EXPECT_LE(value, 0x3FFF);
 }
@@ -217,7 +213,7 @@ TEST(DriverConfigTest, TempCoValue_ClampedTo14Bit) {
       .shuntResistor = 0.002,
       .maxExpectedCurrent = 10.0,
       .tempCompensation = true,
-      .shuntTempCoeff = 500.0, // Maximum reasonable value
+      .shuntTempCoeff = 500.0, // Example coefficient
   };
 
   const uint16_t value = config.getTempCoValue();
@@ -233,9 +229,7 @@ TEST(DriverConfigTest, TempCoValue_ZeroCoefficient) {
   EXPECT_EQ(config.getTempCoValue(), 0);
 }
 
-// ============================================================================
 // Shunt Calibration Register Tests
-// ============================================================================
 
 TEST(DriverConfigTest, ShuntCal_DifferentRanges) {
   DriverConfig config164{
@@ -244,23 +238,23 @@ TEST(DriverConfigTest, ShuntCal_DifferentRanges) {
       .range = ShuntRange::RANGE_164mV,
   };
 
-  DriverConfig config40{
+  DriverConfig config41{
       .shuntResistor = 0.002,
       .maxExpectedCurrent = 10.0,
-      .range = ShuntRange::RANGE_40mV,
+      .range = ShuntRange::RANGE_41mV,
   };
 
   const uint16_t val164 = config164.getShuntCalValue();
-  const uint16_t val40 = config40.getShuntCalValue();
+  const uint16_t val41 = config41.getShuntCalValue();
 
   // Different ranges should produce different calibration values
-  EXPECT_NE(val164, val40);
+  EXPECT_NE(val164, val41);
 
   // Both should be non-zero and within 15-bit range
   EXPECT_GT(val164, 0);
-  EXPECT_GT(val40, 0);
+  EXPECT_GT(val41, 0);
   EXPECT_LE(val164, 0x7FFF);
-  EXPECT_LE(val40, 0x7FFF);
+  EXPECT_LE(val41, 0x7FFF);
 }
 
 TEST(DriverConfigTest, ShuntCal_ScalesWithResistor) {
@@ -291,9 +285,7 @@ TEST(DriverConfigTest, ShuntCal_ClampedTo15Bit) {
   EXPECT_LE(value, 0x7FFF); // Bit 15 is reserved
 }
 
-// ============================================================================
 // ADC Configuration Register Tests
-// ============================================================================
 
 TEST(DriverConfigTest, AdcConfig_CombinesAllSettings) {
   DriverConfig config{
@@ -349,9 +341,7 @@ TEST(DriverConfigTest, AdcConfig_DifferentConversionTimes) {
   EXPECT_NE(fast.getAdcConfigValue(), slow.getAdcConfigValue());
 }
 
-// ============================================================================
 // Device Configuration Register Tests
-// ============================================================================
 
 TEST(DriverConfigTest, Config_ConversionDelay) {
   DriverConfig config1{.conversionDelay = 0};
@@ -362,13 +352,13 @@ TEST(DriverConfigTest, Config_ConversionDelay) {
 
 TEST(DriverConfigTest, Config_ShuntRangeFlag) {
   DriverConfig config164{.range = ShuntRange::RANGE_164mV};
-  DriverConfig config40{.range = ShuntRange::RANGE_40mV};
+  DriverConfig config41{.range = ShuntRange::RANGE_41mV};
 
   const uint16_t val164 = config164.getConfigValue();
-  const uint16_t val40 = config40.getConfigValue();
+  const uint16_t val41 = config41.getConfigValue();
 
   // Should set different bits
-  EXPECT_NE(val164, val40);
+  EXPECT_NE(val164, val41);
 }
 
 TEST(DriverConfigTest, Config_TempCompensationFlag) {
@@ -389,7 +379,7 @@ TEST(DriverConfigTest, Config_TempCompensationFlag) {
 
 TEST(DriverConfigTest, Config_CombinesMultipleFlags) {
   DriverConfig config{
-      .range = ShuntRange::RANGE_40mV,
+      .range = ShuntRange::RANGE_41mV,
       .conversionDelay = 100,
       .tempCompensation = true,
   };
@@ -398,9 +388,7 @@ TEST(DriverConfigTest, Config_CombinesMultipleFlags) {
   EXPECT_NE(value, 0);
 }
 
-// ============================================================================
 // Integration / Real-World Scenario Tests
-// ============================================================================
 
 TEST(DriverConfigTest, TypicalApplication_10A_2mOhm) {
   DriverConfig config{
@@ -419,7 +407,7 @@ TEST(DriverConfigTest, LowCurrentApplication_100mA_100mOhm) {
   DriverConfig config{
       .shuntResistor = 0.1,      // 100mΩ
       .maxExpectedCurrent = 0.1, // 100mA
-      .range = ShuntRange::RANGE_40mV,
+      .range = ShuntRange::RANGE_41mV,
   };
 
   EXPECT_EQ(config.validate(), Status::OK);
@@ -462,9 +450,7 @@ TEST(DriverConfigTest, WithTempCompensation_Realistic) {
   EXPECT_GT(config.getTempCoValue(), 0);
 }
 
-// ============================================================================
 // Edge Case Tests
-// ============================================================================
 
 TEST(DriverConfigTest, VerySmallShunt_1microOhm) {
   DriverConfig config{
@@ -527,25 +513,25 @@ TEST(DriverConfigTest, MixedModes_TempOnly) {
   EXPECT_EQ(config.validate(), Status::OK);
 }
 
-// ============================================================================
 // Boundary Value Tests
-// ============================================================================
 
 TEST(DriverConfigTest, BoundaryTempCoeff_Positive) {
   DriverConfig config{
       .shuntResistor = 0.002,
       .maxExpectedCurrent = 10.0,
-      .shuntTempCoeff = 500.0, // At upper limit
+      .tempCompensation = true,
+      .shuntTempCoeff = 16383.0, // At upper limit
   };
 
   EXPECT_EQ(config.validate(), Status::OK);
 }
 
-TEST(DriverConfigTest, BoundaryTempCoeff_Negative) {
+TEST(DriverConfigTest, BoundaryTempCoeff_Zero) {
   DriverConfig config{
       .shuntResistor = 0.002,
       .maxExpectedCurrent = 10.0,
-      .shuntTempCoeff = -500.0, // At lower limit
+      .tempCompensation = true,
+      .shuntTempCoeff = 0.0, // At lower limit
   };
 
   EXPECT_EQ(config.validate(), Status::OK);
@@ -555,17 +541,19 @@ TEST(DriverConfigTest, BoundaryTempCoeff_JustOverPositive) {
   DriverConfig config{
       .shuntResistor = 0.002,
       .maxExpectedCurrent = 10.0,
-      .shuntTempCoeff = 500.1, // Just over limit
+      .tempCompensation = true,
+      .shuntTempCoeff = 16383.1, // Just over limit
   };
 
   EXPECT_EQ(config.validate(), Status::ERR_INVALID_CONFIG);
 }
 
-TEST(DriverConfigTest, BoundaryTempCoeff_JustOverNegative) {
+TEST(DriverConfigTest, BoundaryTempCoeff_JustBelowZero) {
   DriverConfig config{
       .shuntResistor = 0.002,
       .maxExpectedCurrent = 10.0,
-      .shuntTempCoeff = -500.1, // Just over limit
+      .tempCompensation = true,
+      .shuntTempCoeff = -0.1, // Just below limit
   };
 
   EXPECT_EQ(config.validate(), Status::ERR_INVALID_CONFIG);
