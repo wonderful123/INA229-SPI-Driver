@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.14)
-project(INA229_SPI_Driver LANGUAGES CXX)
+project(INA229_SPI_Driver VERSION 1.0.0 LANGUAGES CXX)
 
 add_library(ina229_lib src/INA229.cpp src/Config.cpp)
 

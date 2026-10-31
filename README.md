@@ -254,7 +254,7 @@ with undefined-behavior and float-to-integer-overflow sanitizers.
 | --- | --- | --- |
 | All five Arduino examples | Arduino CLI 1.3.1, ESP32 core 3.3.12, ESP32 Dev Module | Compiled with all warnings enabled; no warnings |
 | All five PlatformIO examples | PlatformIO 6.1.18, espressif32 6.10.0, Arduino core 2.0.17 | Compiled against the packaged library |
-| Arduino library and sketch lint | Strict Library Manager submission checks | No errors or warnings |
+| Arduino library and sketch lint | Strict library and sketch checks | No errors or warnings |
 | Native tests | GCC 14, CMake, GoogleTest/GoogleMock | 117 checks passed, normally and with sanitizers |
 
 CI checks native tests and compiles every example under both embedded toolchains.
@@ -303,10 +303,19 @@ workflows, and push a matching version tag when ready to release.
 For PlatformIO Registry publication, the maintainer runs `pio account login` and
 `pio pkg publish`. For Arduino Library Manager, submit the repository through the
 [Arduino library registry](https://github.com/arduino/library-registry#adding-a-library-to-library-manager).
-After acceptance, new compliant tags are indexed automatically; change the
-packaging workflow's `library-manager` mode from `submit` to `update` once listed.
-These steps require maintainer action; CI does not publish automatically.
+Before first submission, also run `arduino-lint --compliance strict
+--library-manager submit .` (as one command). CI uses general strict checks so
+registration does not subsequently cause duplicate-name failures.
 
-Driver code is available under the [MIT license](LICENSE). The bundled TI
-datasheet retains Texas Instruments' copyright and is excluded from the
-PlatformIO distribution archive.
+Push a matching `vX.Y.Z` tag to create a GitHub release automatically. The release
+workflow waits for native and embedded checks, validates the tag against both
+package manifests and CMake, and uploads Arduino ZIP / PlatformIO tar archives
+with SHA-256 checksums. It does not publish to either library registry.
+
+To build those assets locally, install PlatformIO 6.1.18 and run
+`python scripts/package_release.py --tag v1.0.0`. Files appear in `dist/`.
+Registry registration still requires maintainer action.
+
+Driver code is available under the [MIT license](LICENSE). Refer to the
+[official TI datasheet](https://www.ti.com/lit/ds/symlink/ina229.pdf) for device
+specifications; it is linked rather than redistributed in this repository.

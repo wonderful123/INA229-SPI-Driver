@@ -1,15 +1,37 @@
 name: Library packaging
-on: [push, pull_request]
+on:
+  push:
+    branches: ['**']
+  pull_request:
+  workflow_dispatch:
+  workflow_call:
+permissions:
+  contents: read
+concurrency:
+  group: ${{ github.workflow }}-packaging.yml-${{ github.ref }}
+  cancel-in-progress: false
 jobs:
   arduino:
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
-      - uses: actions/checkout@v4
-      - uses: arduino/arduino-lint-action@v2
+      - uses: actions/checkout@v7
+      - uses: arduino/arduino-lint-action@v3
         with:
           compliance: strict
-          library-manager: submit
-      - uses: arduino/setup-arduino-cli@v2
+          library-manager: 'false'
+      - name: Install verified Arduino CLI 1.3.1
+        run: |
+          cd "$RUNNER_TEMP"
+          curl --fail --location --silent --show-error \
+            https://github.com/arduino/arduino-cli/releases/download/v1.3.1/arduino-cli_1.3.1_Linux_64bit.tar.gz \
+            --output arduino-cli_1.3.1_Linux_64bit.tar.gz
+          curl --fail --location --silent --show-error \
+            https://github.com/arduino/arduino-cli/releases/download/v1.3.1/1.3.1-checksums.txt \
+            --output arduino-checksums.txt
+          awk '$2 == "arduino-cli_1.3.1_Linux_64bit.tar.gz"' arduino-checksums.txt | sha256sum --check --strict
+          tar -xzf arduino-cli_1.3.1_Linux_64bit.tar.gz arduino-cli
+          echo "$RUNNER_TEMP" >> "$GITHUB_PATH"
       - name: Install ESP32 core
         run: >-
           arduino-cli core install esp32:esp32@3.3.12
@@ -22,9 +44,10 @@ jobs:
           done
   platformio:
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
         with:
           python-version: '3.12'
       - run: pip install platformio==6.1.18
@@ -49,3 +72,5 @@ jobs:
           done
       - name: Verify local example configuration
         run: pio run -d examples -e BasicReadings
+      - name: Validate release versions and archives
+        run: python scripts/package_release.py

@@ -3,3 +3,7 @@
 
 # Windows download metadata
 *Zone.Identifier
+
+# Generated release archives
+/dist/
+__pycache__/

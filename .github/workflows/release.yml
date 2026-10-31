@@ -1,0 +1,36 @@
+name: Release
+on:
+  push:
+    tags: ['v*']
+permissions:
+  contents: read
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  native:
+    uses: ./.github/workflows/tests.yml
+  packaging:
+    uses: ./.github/workflows/packaging.yml
+  publish:
+    needs: [native, packaging]
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '3.12'
+      - run: pip install platformio==6.1.18
+      - name: Validate tag and build release assets
+        run: python scripts/package_release.py --tag "$GITHUB_REF_NAME"
+      - name: Publish verified GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: >-
+          gh release create "$GITHUB_REF_NAME"
+          --verify-tag --title "INA229 SPI Driver $GITHUB_REF_NAME"
+          --notes-file dist/release-notes.md
+          dist/*.zip dist/*.tar.gz dist/SHA256SUMS

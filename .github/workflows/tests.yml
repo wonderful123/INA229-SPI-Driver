@@ -1,10 +1,21 @@
 name: Native tests
-on: [push, pull_request]
+on:
+  push:
+    branches: ['**']
+  pull_request:
+  workflow_dispatch:
+  workflow_call:
+permissions:
+  contents: read
+concurrency:
+  group: ${{ github.workflow }}-tests.yml-${{ github.ref }}
+  cancel-in-progress: false
 jobs:
   test:
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Configure with undefined-behavior checks
         run: >-
           cmake -S . -B build -DCMAKE_BUILD_TYPE=Debug
