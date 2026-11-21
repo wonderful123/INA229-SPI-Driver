@@ -1,27 +1,18 @@
 # INA229 SPI Driver
 
-C++17 driver for the Texas Instruments **INA229 SPI power monitor**, with an
-Arduino SPI adapter for ESP32 and a portable core for custom firmware. Read bus
-and shunt voltage, bidirectional current, power, energy, charge, and die
-temperature in physical units. The driver verifies configuration on startup
-and can restore it after a detected mismatch.
+Read voltage and signed current from a **TI INA229** over SPI. Track signed
+amp-hours for battery monitoring, or read watts, watt-hours, and die temperature
+for DC power logging. The driver verifies configuration on startup and can
+restore it after a detected mismatch.
 
-[Install](#install) · [Get your first reading](#get-your-first-reading) ·
-[Examples](#examples) · [Measurement API](#measurement-api) ·
+[Arduino IDE](#arduino-ide) · [PlatformIO](#platformio) ·
+[Wiring and first reading](#get-your-first-reading) ·
 [Portable C++](#portable-c)
 
-## Compatibility
-
-| Setup | Support |
-| --- | --- |
-| Arduino IDE or CLI | ESP32 Dev Module, compiled with Espressif Arduino core 3.3.12 |
-| PlatformIO | `esp32dev`, Arduino framework, compiled with `espressif32@6.10.0` (Arduino core 2.0.17) and C++17 enabled |
-| Other C++17 platforms | Supply an [`ISPI` adapter](src/INA229/ISPI.hpp) and validate on your target |
-| Classic Arduino Uno and Mega (AVR) | Unsupported with their default toolchains |
-
-The examples have been compiled on both ESP32 toolchains. Physical-device
-timing and measurement accuracy remain unverified. Use this driver with the
-SPI-based INA229. The INA228 uses I²C.
+Includes an ESP32 Arduino adapter and a portable C++17 core. The examples build
+on both [ESP32 toolchains](#compatibility-and-validation). Physical-device timing
+and measurement accuracy remain unverified. The INA228 uses I²C and requires a
+different driver.
 
 ## Install
 
@@ -85,9 +76,17 @@ See the [TI datasheet](https://www.ti.com/lit/ds/symlink/ina229.pdf).
 2. Set `config.maxExpectedCurrent` in amps. The sketch uses **10 A**. This
    value sets the current scale. Allow for expected peaks and choose a shunt
    range that can accommodate the resulting voltage drop.
-3. Upload the sketch and open the serial monitor at **115200 baud**. With an
-   approximately 12 V bus and a 1 A load flowing from IN+ toward IN−, expect
-   about **12 V** and **+1 A**. Reversing current direction reverses the sign.
+3. Upload the sketch and open the serial monitor at **115200 baud**.
+
+Illustrative output for a 12 V bus and a 1 A load flowing from IN+ toward IN−:
+
+```text
+INA229 ready. Open Serial Monitor at 115200 baud.
+Bus voltage (V): 12.0000
+Current (A): 1.000000
+```
+
+Actual readings depend on the circuit and shunt. Reversing the current reverses its sign.
 
 An **invalid configuration** message points to the shunt, current scale, or
 ADC settings. For an **initialization failure**, check sensor power, ground,
@@ -172,7 +171,14 @@ cmake --build build
 ctest --test-dir build --output-on-failure
 ```
 
-## Validation and license
+## Compatibility and validation
+
+| Target | Build coverage |
+| --- | --- |
+| Arduino IDE or CLI | ESP32 Dev Module with Espressif Arduino core 3.3.12 |
+| PlatformIO | `esp32dev` with `espressif32@6.10.0` (Arduino core 2.0.17) and explicit C++17 flags |
+| Other C++17 targets | Bring your own [`ISPI` adapter](src/INA229/ISPI.hpp) and validate on your board |
+| Classic Arduino Uno and Mega (AVR) | Unsupported with their default toolchains |
 
 The [v1.0.0 changelog](CHANGELOG.md) records 117 passing native checks,
 including C++17 compatibility and Arduino SPI transaction tests, plus
